@@ -349,7 +349,7 @@ int main( int argc, char* argv[] )
 
 	//start generate data
 	mContext.StartGeneratingAll();
-
+	/*
 	//OpenNI calc Disparity
 	//Convert from depth to disparity:  disparity = baseline * Focallength / z(depth);
 	// Distance between IR projector and IR camera (in meters)
@@ -369,8 +369,7 @@ int main( int argc, char* argv[] )
 	mDepthGenerator.GetRealProperty( "ZPPS", pixelSize );
 	// focal length from mm -> pixels (valid for 640x480)
 	depthFocalLength_VGA = (XnUInt64)((double)zeroPlanDistance / (double)pixelSize);
-
-	float mult = baseline /*mm*/ * depthFocalLength_VGA /*pixels*/;
+	*/
 
 	for(;;)
 	{
@@ -428,11 +427,16 @@ int main( int argc, char* argv[] )
 					mDepthGenerator.ConvertRealWorldToProjective(4, JointsReal, JointsScreen);
 
 					//Convert from depth to disparity:  disparity = baseline * Focallength / z(depth);
+
+					float b = (float)capture.get( CV_CAP_OPENNI_DEPTH_GENERATOR_BASELINE ); // mm
+					float f = (float)capture.get( CV_CAP_OPENNI_DEPTH_GENERATOR_FOCAL_LENGTH ); // pixels
+					float mult = b /*mm*/ * f /*pixels*/;
+
 					for(int i=0; i<4; i++){
 						JointsScreen[i].Z = (mult / JointsScreen[i].Z);
 					}
 					//cout << "Is trackingLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL" << endl;
-					thresholdRHand = 255 - JointsScreen[RHand].Z -15;
+					thresholdRHand = JointsScreen[RHand].Z -15;
 
 					userID = aUserID[i];
 				}
@@ -473,16 +477,29 @@ int main( int argc, char* argv[] )
 					cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 					cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 				}
-				
 				imshow( "depthmap", m_depthmap );
-				
 
 				Mat colorDisparityMap;
 				Mat filterScratch;
 
+				/*//Debug
+				if(isTracking){
+					char temp[10];
+					CvFont Font;
+					cvInitFont( &Font,CV_FONT_HERSHEY_SIMPLEX,0.5,0.5,0.0,1, CV_AA );
+					sprintf(temp,"(%d,%d)", (int)JointsScreen[RHand].X, (int)JointsScreen[RHand].Y);
+					cvPutText(&(m_depthmap.operator IplImage()), temp, cvPoint(20, 20), &Font, CV_RGB(0,255,0));
+					if(JointsScreen[RHand].X > 0 && JointsScreen[RHand].X < 640 && JointsScreen[RHand].Y > 0 && JointsScreen[RHand].Y < 480)
+						sprintf(temp,"%d",(int)disparityMap.at<unsigned short>((int)JointsScreen[RHand].X, (int)JointsScreen[RHand].Y));
+					cvPutText(&(m_depthmap.operator IplImage()), temp, cvPoint(20, 50), &Font, CV_RGB(255,0,0));
+					circle(disparityMap, Point(JointsScreen[RHand].X, JointsScreen[RHand].Y), 20, cvScalar(255), 4);
+				}
+				imshow( "disparityMap", disparityMap );
+				*/
+
 				blur(disparityMap, filterScratch, Size(5, 5));
 				dilate(filterScratch, disparityMap, Mat(),Point(-1,-1),2);
-				threshold(disparityMap, disparityMap, 65, 255, THRESH_TOZERO); 
+				threshold(disparityMap, disparityMap, thresholdRHand, 255, THRESH_TOZERO);
 
 				vector<vector<Point> > contours0;
 				vector<vector<Point> > hull;
@@ -495,7 +512,7 @@ int main( int argc, char* argv[] )
 				colorDisparityMap.copyTo( validColorDisparityMap, disparityMap != 0 );
 
 				//get the contours
-				threshold(disparityMap, filterScratch, 65, 255, THRESH_BINARY);
+				threshold(disparityMap, filterScratch, thresholdRHand, 255, THRESH_BINARY);
 				findContours( filterScratch, contours0, hierarchy, CV_RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
 
 				//Get average position, weight by y-value:
@@ -595,8 +612,6 @@ int main( int argc, char* argv[] )
 						drawContours( disparityMap, contours0, i, Scalar(0), 1);
 					}
 				}
-
-
 
 
 				distanceTransform(disparityMap, distImage,CV_DIST_L1, CV_DIST_MASK_PRECISE);
@@ -717,9 +732,9 @@ int main( int argc, char* argv[] )
 
 				if(isTracking){
 					char temp[10];
-					sprintf(temp,"%d",(int)JointsScreen[RHand].Z);
 					CvFont Font;
 					cvInitFont( &Font,CV_FONT_HERSHEY_SIMPLEX,0.5,0.5,0.0,1, CV_AA );
+					sprintf(temp,"%d",(int)JointsScreen[RHand].Z);
 					cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 20), &Font, CV_RGB(255,0,0));
 					sprintf(temp,"%d", thresholdRHand);
 					cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 100), &Font, CV_RGB(255,0,0));
