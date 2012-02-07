@@ -316,7 +316,7 @@ int main( int argc, char* argv[] )
 	XnPoint3D  JointsReal[4];
 	XnPoint3D  JointsScreen[4];
 	//Length form elbow to hand in real world(mm)
-	int RLength = 0, LLength = 0;
+	//int RLength = 0, LLength = 0;
 
 	//OpenNI
 	//initial context
@@ -381,6 +381,7 @@ int main( int argc, char* argv[] )
 		Mat grayImage;
 
 		int thresholdRHand = 65;
+		XnUserID userID = 0;
 
 		//OpenNI
 		Mat m_depthmap( 480,640,CV_8UC3);
@@ -413,7 +414,7 @@ int main( int argc, char* argv[] )
 					}
 
 					//Calc distance between hand & elbow
-					
+					/*
 					RLength = sqrt(pow(JointsReal[RHand].X-JointsReal[RElbow].X, 2) + 
 						pow(JointsReal[RHand].Y-JointsReal[RElbow].Y, 2) + 
 						pow(JointsReal[RHand].Z-JointsReal[RElbow].Z, 2));
@@ -421,7 +422,7 @@ int main( int argc, char* argv[] )
 					LLength = sqrt(pow(JointsReal[LHand].X-JointsReal[LElbow].X, 2) + 
 						pow(JointsReal[LHand].Y-JointsReal[LElbow].Y, 2) + 
 						pow(JointsReal[LHand].Z-JointsReal[LElbow].Z, 2));
-					
+					*/
 
 					//Convert from realworld coordinates to Projective(Screen) coordinates
 					mDepthGenerator.ConvertRealWorldToProjective(4, JointsReal, JointsScreen);
@@ -431,7 +432,9 @@ int main( int argc, char* argv[] )
 						JointsScreen[i].Z = (mult / JointsScreen[i].Z);
 					}
 					//cout << "Is trackingLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL" << endl;
-					thresholdRHand = 255 - (JointsScreen[RHand].Z - 35);
+					thresholdRHand = 255 - JointsScreen[RHand].Z -15;
+
+					userID = aUserID[i];
 				}
 			}
 			delete [] aUserID;
@@ -463,10 +466,12 @@ int main( int argc, char* argv[] )
 				m_depth16u.convertTo(m_depthmap, CV_8U, 255.0/2550.0);
 				cvtColor(m_depthmap,m_depthmap,CV_GRAY2RGB);
 
+				bool isTracking = mSC.IsTracking(userID);
+
 				//draw lines of the arms
-				if(mUserGenerator.GetNumberOfUsers() > 0 && RLength && LLength){
-					cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[1].X, JointsScreen[1].Y), cvPoint(JointsScreen[0].X, JointsScreen[0].Y), CV_RGB(0,255,0), 3, 8, 0);
-					cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[3].X, JointsScreen[3].Y), cvPoint(JointsScreen[2].X, JointsScreen[2].Y), CV_RGB(0,255,0), 3, 8, 0);
+				if(isTracking){
+					cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
+					cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 				}
 				
 				imshow( "depthmap", m_depthmap );
@@ -702,7 +707,7 @@ int main( int argc, char* argv[] )
 				}
 
 				//draw lines of the arms
-				if(mUserGenerator.GetNumberOfUsers() > 0 && RLength && LLength){
+				if(isTracking){
 					cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 					cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 					circle(disparityMap, Point(JointsScreen[RHand].X, JointsScreen[RHand].Y), 20, cvScalar(0));
@@ -710,9 +715,9 @@ int main( int argc, char* argv[] )
 
 				flip(disparityMap, flipped, 1); //flip horizontal
 
-				if(mUserGenerator.GetNumberOfUsers() > 0 && RLength && LLength){
+				if(isTracking){
 					char temp[10];
-					sprintf(temp,"%f",JointsScreen[RHand].Z);
+					sprintf(temp,"%d",(int)JointsScreen[RHand].Z);
 					CvFont Font;
 					cvInitFont( &Font,CV_FONT_HERSHEY_SIMPLEX,0.5,0.5,0.0,1, CV_AA );
 					cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 20), &Font, CV_RGB(255,0,0));
