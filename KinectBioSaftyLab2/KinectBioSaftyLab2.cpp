@@ -95,6 +95,117 @@ void findConvexityDefects(vector<Point>& contour, vector<int>& hull, vector<Poin
 	}
 }
 
+void handDetect(vector<Point>& contour, Mat& disparityMap)
+{
+
+	Mat distImage;
+	distanceTransform(disparityMap, distImage,CV_DIST_L1, CV_DIST_MASK_PRECISE);
+
+	Rect br = boundingRect(contour);
+	CvBox2D smallRect = minAreaRect(contour);//minimum area bounding rectangle (possibly rotated)
+
+	CvPoint2D32f smallRectPtsAr[4];
+	cvBoxPoints(smallRect, smallRectPtsAr);
+	vector<Point> smallRectPts;
+	smallRectPts.push_back(smallRectPtsAr[0]);
+	smallRectPts.push_back(smallRectPtsAr[1]);
+	smallRectPts.push_back(smallRectPtsAr[2]);
+	smallRectPts.push_back(smallRectPtsAr[3]);
+
+	Mat subMat = distImage(boundingRect(contour));
+	float biggestDist = -1;
+	double mi, mj;
+	int nMaxPts = 0;
+
+	for (int i = 0; i < subMat.rows; i++) //i = y pixel coordinate (from upper left of hand contour bounding box)
+	{
+		for (int j = 0; j < subMat.cols; j++) // j = x pixel coord. (from upper left)
+		{
+			float val = subMat.at<float>(i,j);// - (i*.05);//i term "punishes" points low on the image
+
+			//Penalize points "down" the arm (towards the elbow)
+			//  Actually, should probably do some convexity analysis to determine
+			// which is the hand end of the contour.
+			// [!!!] Use Kuan's code to correctly differentiate wrist/elbow end of contour
+			if (i > 100) //maybe midpoint of hand and elbow. but need to consider the case when forearm is horizontal
+			{
+				val -= 100;
+			}
+
+			if (val >= biggestDist)
+			{
+				//double dist = pointPolygonTest(contours0[idxOfBiggestArea], Point(br.x + j, br.y + i), CV_DIST_L1);
+				double rectDist = pointPolygonTest(smallRectPts, Point(br.x + j, br.y + i), CV_DIST_L1);//nearest distance to minimum area bounding rect
+				if (rectDist > 0 /*inside bounding rect*/ && pointPolygonTest(contour, Point(br.x + j, br.y + i), CV_DIST_L1) > 0 /*inside contour*/)
+				{
+
+					//if (val >= biggestDist)  //already an if (val >= biggestDist) above
+					//{
+					if (val > biggestDist)
+					{
+						biggestDist = val; 
+						mi = i;
+						mj = j;
+						nMaxPts = 1;
+					}
+					else //val == biggestDist
+					{
+						mi += i;
+						mj += j;
+						nMaxPts++;
+					}
+					//}
+				}
+			}
+		}
+	}
+
+	//average coordinate of biggest distance points <= palm center
+	mi /= nMaxPts;
+	mj /= nMaxPts;
+
+	Point palmCenter(br.x + mj, br.y + mi);
+	circle(disparityMap, palmCenter, 15, cvScalar(0,0,0));
+
+	//-------------- Do some convexity analysis
+
+	vector<Point> biggestContour = contour;
+	vector<vector<Point> > biggestHull;
+	vector<Point> hull(biggestContour);
+	vector<int> hullIndices;
+
+	convexHull(biggestContour, hull);
+	convexHull(biggestContour, hullIndices, false, false);
+
+	biggestHull.push_back(hull);
+	drawContours( disparityMap, biggestHull, 0, Scalar(0), 2);
+	vector<Point> convexityDefects;
+
+	//[!!!] Currrently getting thresholded! fix function to return vector of defect objects!
+	findConvexityDefects(biggestContour, hullIndices, convexityDefects);
+
+	int nDefectsNearPalm = 0;
+	for (int i = 0; i < convexityDefects.size(); i++)
+	{
+		circle(disparityMap, convexityDefects[i], 5, cvScalar(0,0,0));
+		double distFromPalm = norm(palmCenter - convexityDefects[i]);
+		if (distFromPalm < 150)//base on the length of the forearm?
+		{
+			nDefectsNearPalm++;
+		}
+	}
+
+	bool closedFist = nDefectsNearPalm < 5;
+	if (closedFist)
+	{
+		circle(disparityMap, palmCenter, 12, cvScalar(0,0,0), -1);
+	}
+
+	//Point maxPts[100];
+	//minMaxLoc(disparityMap(boundingRect(contours0[idxOfBiggestArea])), NULL, NULL, NULL);
+
+}
+
 
 void colorizeDisparity( const Mat& gray, Mat& rgb, double maxDisp=-1.f, float S=1.f, float V=1.f )
 {
@@ -438,7 +549,13 @@ int main( int argc, char* argv[] )
 						joints[i] = Point(JointsScreen[i].X, JointsScreen[i].Y);
 					}
 					//cout << "Is trackingLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL" << endl;
-					thresholdRHand = (JointsScreen[RHand].Z < JointsScreen[LHand].Z ? JointsScreen[RHand].Z : JointsScreen[LHand].Z) -5;
+					if(JointsScreen[RHand].X < 0 || JointsScreen[RHand].Y < 0)
+						JointsScreen[RHand].Z = 0xFF;//if out of window, don't use the depth
+					if(JointsScreen[LHand].X < 0 || JointsScreen[LHand].Y < 0)
+						JointsScreen[LHand].Z = 0xFF;//if out of window, don't use the depth
+					//0(far)-65(near)   20(3m) - 85(1m)
+					//take the farest hand as threshold
+					thresholdRHand = (JointsScreen[RHand].Z < JointsScreen[LHand].Z ? JointsScreen[RHand].Z : JointsScreen[LHand].Z) - 2;
 
 					userID = aUserID[i];
 				}
@@ -516,7 +633,21 @@ int main( int argc, char* argv[] )
 				dilate(filterScratch, disparityMap, Mat(),Point(-1,-1),2);
 				threshold(disparityMap, disparityMap, thresholdRHand, 255, THRESH_TOZERO);//cut 0(far)-65(near)   20(3m) - 85(1m)
 				
-				//kmeans
+
+				//Cut everything far away from hand joints
+				if(isTracking){
+					for (int y = 0; y < disparityMap.rows; y++) {
+						for (int x = 0; x < disparityMap.cols; x++) {
+							if(disparityMap.at<unsigned char>(y, x) != 0) {
+								if( norm(Point(x,y) - Point(joints[RHand].x, joints[RHand].y)) > 100 && 
+									norm(Point(x,y) - Point(joints[LHand].x, joints[LHand].y)) > 100 )
+									disparityMap.at<unsigned char>(y, x) = 0;
+							}
+						}
+					}
+				}
+
+				//kmeans for divide hands part form body (failed, not needed)
 				/*
 				if(isTracking){
 					int count = countNonZero(disparityMap);
@@ -658,31 +789,65 @@ int main( int argc, char* argv[] )
 				Mat flipped;
 				Mat distImage;
 
-
 				//find biggest contour
 
+				/*
 				int biggestArea = -1;
+				int secondBiggestArea = -1;
 				int idxOfBiggestArea = -1;
+				int idxOfSecondBiggest = -1;
+				*/
+				//Find the contours which hand joints are within
+				int idxOfRHand = -1;
+				int idxOfLHand = -1;
 
 				threshold(disparityMap, disparityMap, -1, 255, THRESH_BINARY);
 
 				for (int i = 0; i < contours0.size(); i++)
 				{
-					if(boundingRect(contours0[i]).area() >= 4000)
+					if(pointPolygonTest(contours0[i],Point(joints[RHand].x, joints[RHand].y), true) > -5)//hand joint "near"(not only inside) the contour polygon
+						idxOfRHand = i;
+
+					if(pointPolygonTest(contours0[i],Point(joints[LHand].x, joints[LHand].y), true) > -5)//hand joint "near"(not only inside) the contour polygon
+						idxOfLHand = i;
+
+					int area = boundingRect(contours0[i]).area();
+					if(area >= 4000)
 					{
-						if (boundingRect(contours0[i]).area() > biggestArea)
+						/*
+						if (area > secondBiggestArea)
 						{
-							biggestArea = boundingRect(contours0[i]).area();
-							idxOfBiggestArea = i;
-						}
+							if(area > biggestArea) {
+								biggestArea = area;
+								idxOfBiggestArea = i;
+							}
+							else {
+								secondBiggestArea = area;
+								idxOfSecondBiggest = i;
+							}
+						}*/
 
 						//drawContours( validColorDisparityMap, contours0, i, Scalar(255,255,255), 2);
 						drawContours( disparityMap, contours0, i, Scalar(0), 1);
 					}
 				}
 
+				//distanceTransform(disparityMap, distImage,CV_DIST_L1, CV_DIST_MASK_PRECISE);
 
-				distanceTransform(disparityMap, distImage,CV_DIST_L1, CV_DIST_MASK_PRECISE);
+				/*
+				if (idxOfBiggestArea >= 0)
+					handDetect(contours0[idxOfBiggestArea], disparityMap);
+				if (idxOfSecondBiggest >= 0)
+					handDetect(contours0[idxOfSecondBiggest], disparityMap);
+				*/
+				
+				if (idxOfRHand >= 0)
+					handDetect(contours0[idxOfRHand], disparityMap);
+				if (idxOfLHand >= 0)
+					handDetect(contours0[idxOfLHand], disparityMap);
+				
+				//Hand detection
+				/*
 				if (idxOfBiggestArea >= 0)
 				{
 					Rect br = boundingRect(contours0[idxOfBiggestArea]);
@@ -720,7 +885,7 @@ int main( int argc, char* argv[] )
 							{
 								//double dist = pointPolygonTest(contours0[idxOfBiggestArea], Point(br.x + j, br.y + i), CV_DIST_L1);
 								double rectDist = pointPolygonTest(smallRectPts, Point(br.x + j, br.y + i), CV_DIST_L1);//nearest distance to minimum area bounding rect
-								if (rectDist > 0 /*inside bounding rect*/ && pointPolygonTest(contours0[idxOfBiggestArea], Point(br.x + j, br.y + i), CV_DIST_L1) > 0 /*inside contour*/)
+								if (rectDist > 0  && pointPolygonTest(contours0[idxOfBiggestArea], Point(br.x + j, br.y + i), CV_DIST_L1) > 0 )//inside bounding rect //inside contour
 								{
 
 									//if (val >= biggestDist)  //already an if (val >= biggestDist) above
@@ -788,8 +953,10 @@ int main( int argc, char* argv[] )
 					//Point maxPts[100];
 					//minMaxLoc(disparityMap(boundingRect(contours0[idxOfBiggestArea])), NULL, NULL, NULL);
 				}
+				*/
 
 				//draw lines of the forearms
+
 				if(isTracking){
 					cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 					cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
