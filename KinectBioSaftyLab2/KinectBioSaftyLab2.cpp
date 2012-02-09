@@ -343,7 +343,7 @@ int main( int argc, char* argv[] )
 
 	//Register callback functions of skeleton capability
 	xn::SkeletonCapability mSC = mUserGenerator.GetSkeletonCap();
-	mSC.SetSkeletonProfile( XN_SKEL_PROFILE_UPPER);//XN_SKEL_PROFILE_HEAD_HANDS
+	mSC.SetSkeletonProfile( XN_SKEL_PROFILE_UPPER);//XN_SKEL_PROFILE_UPPER  XN_SKEL_PROFILE_HEAD_HANDS
 	XnCallbackHandle hCalibCB;
 	mSC.RegisterToCalibrationComplete( CalibrationEnd, &mUserGenerator, hCalibCB );
 
@@ -381,6 +381,8 @@ int main( int argc, char* argv[] )
 
 		int thresholdRHand = 65;
 		XnUserID userID = 0;
+
+		Point joints[4];
 
 		//OpenNI
 		Mat m_depthmap( 480,640,CV_8UC3);
@@ -427,16 +429,16 @@ int main( int argc, char* argv[] )
 					mDepthGenerator.ConvertRealWorldToProjective(4, JointsReal, JointsScreen);
 
 					//Convert from depth to disparity:  disparity = baseline * Focallength / z(depth);
-
 					float b = (float)capture.get( CV_CAP_OPENNI_DEPTH_GENERATOR_BASELINE ); // mm
 					float f = (float)capture.get( CV_CAP_OPENNI_DEPTH_GENERATOR_FOCAL_LENGTH ); // pixels
 					float mult = b /*mm*/ * f /*pixels*/;
 
 					for(int i=0; i<4; i++){
 						JointsScreen[i].Z = (mult / JointsScreen[i].Z);
+						joints[i] = Point(JointsScreen[i].X, JointsScreen[i].Y);
 					}
 					//cout << "Is trackingLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL" << endl;
-					thresholdRHand = JointsScreen[RHand].Z -15;
+					thresholdRHand = (JointsScreen[RHand].Z < JointsScreen[LHand].Z ? JointsScreen[RHand].Z : JointsScreen[LHand].Z) -5;
 
 					userID = aUserID[i];
 				}
@@ -497,10 +499,75 @@ int main( int argc, char* argv[] )
 				imshow( "disparityMap", disparityMap );
 				*/
 
+				/*
+				if(isTracking){
+					for (int y = 0; y < disparityMap.rows; y++)
+					{
+						for (int x = 0; x < disparityMap.cols; x++)
+						{
+							if( norm( Point(x,y) - Point(joints[RHand].x, joints[RHand].y) ) > 150 )
+								disparityMap.at<unsigned short>(x, y) = 0;
+						}
+					}
+				}
+				*/
+
 				blur(disparityMap, filterScratch, Size(5, 5));
 				dilate(filterScratch, disparityMap, Mat(),Point(-1,-1),2);
-				threshold(disparityMap, disparityMap, thresholdRHand, 255, THRESH_TOZERO);
+				threshold(disparityMap, disparityMap, thresholdRHand, 255, THRESH_TOZERO);//cut 0(far)-65(near)   20(3m) - 85(1m)
+				
+				//kmeans
+				/*
+				if(isTracking){
+					int count = countNonZero(disparityMap);
+					Mat points;
+					Mat labs;
+					Mat centers;
+					points.create(count, 3, DataType<float>::type);
+					labs.create(count, 1, DataType<int>::type);
+					int k = 0;
 
+					//convert Mat into sample array for kmeans
+					for (int y = 0; y < disparityMap.rows; y++) {
+						for (int x = 0; x < disparityMap.cols; x++) {
+							if(disparityMap.at<unsigned char>(y, x) != 0) {
+								if( norm(Point(x,y) - Point(joints[RHand].x, joints[RHand].y)) < 50 )
+									labs.at<int>(k, 0) = 0;//RHand
+								if( norm(Point(x,y) - Point(joints[LHand].x, joints[LHand].y)) < 50 )
+									labs.at<int>(k, 0) = 1;//LHand
+								points.at<float>(k, 0) = x;
+								points.at<float>(k, 1) = y;
+								points.at<float>(k++, 2) = disparityMap.at<unsigned char>(y, x);
+							}
+						}
+					}
+
+					kmeans(points, 3, labs, TermCriteria( CV_TERMCRIT_EPS+CV_TERMCRIT_ITER, 10, 1.0), 1, KMEANS_RANDOM_CENTERS, centers);
+
+					
+					bool nearHand[3] = {false, false, false};
+					//Find the label which near right hand joint
+					for(int i=0;i<centers.rows;i++)
+					{
+						Point center = Point(centers.at<float>(i,0), centers.at<float>(i,1));
+						if( norm(center - Point(joints[RHand].x, joints[RHand].y)) < 100 ||  norm(center - Point(joints[LHand].x, joints[LHand].y)) < 100 )
+							nearHand[i] = true;
+					}
+
+					circle(disparityMap, Point(centers.at<float>(0,0), centers.at<float>(0,1)), 20, cvScalar(255), 4);
+					circle(disparityMap, Point(centers.at<float>(1,0), centers.at<float>(1,1)), 20, cvScalar(255), 4);
+					circle(disparityMap, Point(centers.at<float>(2,0), centers.at<float>(2,1)), 20, cvScalar(255), 4);
+					imshow( "kmeans", disparityMap );
+
+					//delete points with other labels
+					for(int i=0; i<count; i++) {
+						if( !nearHand[labs.at<int>(i)] ){
+							disparityMap.at<unsigned char>(points.at<float>(i, 1), points.at<float>(i, 0)) = 0;
+						}
+					}					
+				}
+				*/
+				
 				vector<vector<Point> > contours0;
 				vector<vector<Point> > hull;
 				vector<Vec4i> hierarchy;
@@ -598,6 +665,7 @@ int main( int argc, char* argv[] )
 				int idxOfBiggestArea = -1;
 
 				threshold(disparityMap, disparityMap, -1, 255, THRESH_BINARY);
+
 				for (int i = 0; i < contours0.size(); i++)
 				{
 					if(boundingRect(contours0[i]).area() >= 4000)
@@ -618,7 +686,7 @@ int main( int argc, char* argv[] )
 				if (idxOfBiggestArea >= 0)
 				{
 					Rect br = boundingRect(contours0[idxOfBiggestArea]);
-					CvBox2D smallRect = minAreaRect(contours0[idxOfBiggestArea]);
+					CvBox2D smallRect = minAreaRect(contours0[idxOfBiggestArea]);//minimum area bounding rectangle (possibly rotated)
 
 					CvPoint2D32f smallRectPtsAr[4];
 					cvBoxPoints(smallRect, smallRectPtsAr);
@@ -643,7 +711,7 @@ int main( int argc, char* argv[] )
 							//  Actually, should probably do some convexity analysis to determine
 							// which is the hand end of the contour.
 							// [!!!] Use Kuan's code to correctly differentiate wrist/elbow end of contour
-							if (i > 100)								
+							if (i > 100) //maybe midpoint of hand and elbow. but need to consider the case when forearm is horizontal
 							{
 								val -= 100;
 							}
@@ -651,13 +719,12 @@ int main( int argc, char* argv[] )
 							if (val >= biggestDist)
 							{
 								//double dist = pointPolygonTest(contours0[idxOfBiggestArea], Point(br.x + j, br.y + i), CV_DIST_L1);
-								double rectDist = pointPolygonTest(smallRectPts, Point(br.x + j, br.y + i), CV_DIST_L1);
-								if (rectDist > 0 && pointPolygonTest(contours0[idxOfBiggestArea], Point(br.x + j, br.y + i), CV_DIST_L1) > 0
-									)
+								double rectDist = pointPolygonTest(smallRectPts, Point(br.x + j, br.y + i), CV_DIST_L1);//nearest distance to minimum area bounding rect
+								if (rectDist > 0 /*inside bounding rect*/ && pointPolygonTest(contours0[idxOfBiggestArea], Point(br.x + j, br.y + i), CV_DIST_L1) > 0 /*inside contour*/)
 								{
 
-									if (val >= biggestDist)
-									{
+									//if (val >= biggestDist)  //already an if (val >= biggestDist) above
+									//{
 										if (val > biggestDist)
 										{
 											biggestDist = val; 
@@ -671,12 +738,13 @@ int main( int argc, char* argv[] )
 											mj += j;
 											nMaxPts++;
 										}
-									}
+									//}
 								}
 							}
 						}
 					}
 
+					//average coordinate of biggest distance points <= palm center
 					mi /= nMaxPts;
 					mj /= nMaxPts;
 
@@ -705,7 +773,7 @@ int main( int argc, char* argv[] )
 					{
 						circle(disparityMap, convexityDefects[i], 5, cvScalar(0,0,0));
 						double distFromPalm = norm(palmCenter - convexityDefects[i]);
-						if (distFromPalm < 150)
+						if (distFromPalm < 150)//base on the length of the forearm?
 						{
 							nDefectsNearPalm++;
 						}
@@ -721,11 +789,11 @@ int main( int argc, char* argv[] )
 					//minMaxLoc(disparityMap(boundingRect(contours0[idxOfBiggestArea])), NULL, NULL, NULL);
 				}
 
-				//draw lines of the arms
+				//draw lines of the forearms
 				if(isTracking){
 					cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 					cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
-					circle(disparityMap, Point(JointsScreen[RHand].X, JointsScreen[RHand].Y), 20, cvScalar(0));
+					circle(disparityMap, Point(JointsScreen[RHand].X, JointsScreen[RHand].Y), 5, cvScalar(0));
 				}
 
 				flip(disparityMap, flipped, 1); //flip horizontal
@@ -734,9 +802,9 @@ int main( int argc, char* argv[] )
 					char temp[10];
 					CvFont Font;
 					cvInitFont( &Font,CV_FONT_HERSHEY_SIMPLEX,0.5,0.5,0.0,1, CV_AA );
-					sprintf(temp,"%d",(int)JointsScreen[RHand].Z);
+					sprintf(temp,"Z(R:%d",(int)JointsScreen[RHand].Z);
 					cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 20), &Font, CV_RGB(255,0,0));
-					sprintf(temp,"%d", thresholdRHand);
+					sprintf(temp,"TH(R:%d", thresholdRHand);
 					cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 100), &Font, CV_RGB(255,0,0));
 				}
 
