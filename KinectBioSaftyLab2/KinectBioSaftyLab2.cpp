@@ -477,8 +477,8 @@ int main( int argc, char* argv[] )
 		Point joints[4];
 
 		//OpenNI
-		Mat m_depthmap( 480,640,CV_8UC3);
-		Mat  m_depth16u( 480,640,CV_16UC1);
+		Mat m_depthmap(480, 640, CV_8UC3 );
+		Mat m_depth16u(480, 640, CV_16UC1 );
 		//Update date
 		mContext.WaitAndUpdateAll();
 
@@ -614,7 +614,7 @@ int main( int argc, char* argv[] )
 				dilate(filterScratch, disparityMap, Mat(),Point(-1,-1),2);
 				threshold(disparityMap, disparityMap, thresholdHand, 255, THRESH_TOZERO);//cut 0(far)-65(near)   20(3m) - 85(1m)
 
-				//Cut everything far away from hand joints
+				//Draw circles on the hand joints, cut everything outside the circle
 				if(isTracking){
 					for (int y = 0; y < disparityMap.rows; y++) {
 						for (int x = 0; x < disparityMap.cols; x++) {
@@ -641,6 +641,7 @@ int main( int argc, char* argv[] )
 				*/
 
 				//get the contours
+
 				threshold(disparityMap, filterScratch, thresholdHand, 255, THRESH_BINARY);
 				findContours( filterScratch, contours0, hierarchy, CV_RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
 
