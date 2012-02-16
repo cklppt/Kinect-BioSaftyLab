@@ -17,9 +17,9 @@
 using namespace cv;
 using namespace std;
 
-#define CLICK_WINDOW 25
+//#define CLICK_WINDOW 25
 
-
+/*
 void help()
 {
 	cout << "\nThis program demonstrates usage of Kinect sensor.\n"
@@ -36,6 +36,7 @@ void help()
 		"   OPENNI_GRAY_IMAGE           - gray image (CV_8UC1)\n"
 		<< endl;
 }
+*/
 
 void findConvexityDefects(vector<Point>& contour, vector<int>& hull, vector<Point>& convexDefects)
 {
@@ -206,7 +207,7 @@ void handDetect(vector<Point>& contour, Mat& disparityMap)
 
 }
 
-
+/*
 void colorizeDisparity( const Mat& gray, Mat& rgb, double maxDisp=-1.f, float S=1.f, float V=1.f )
 {
 	CV_Assert( !gray.empty() );
@@ -267,6 +268,8 @@ void colorizeDisparity( const Mat& gray, Mat& rgb, double maxDisp=-1.f, float S=
 		}
 	}
 }
+*/
+
 
 float getMaxDisparity( VideoCapture& capture )
 {
@@ -276,6 +279,7 @@ float getMaxDisparity( VideoCapture& capture )
 	return b * F / minDistance;
 }
 
+/*
 void printCommandLineParams()
 {
 	cout << "-cd       Colorized disparity? (0 or 1; 1 by default) Ignored if disparity map is not selected to show." << endl;
@@ -286,7 +290,9 @@ void printCommandLineParams()
 	cout << "          determine: is depth map, disparity map, valid pixels mask, rgb image, gray image need or not (correspondently)?" << endl ;
 	cout << "          By default -m 01010 i.e. disparity map and rgb image will be shown." << endl ;
 }
+*/
 
+/*
 void parseCommandLine( int argc, char* argv[], bool& isColorizeDisp, bool& isFixedMaxDisp, bool& isSetSXGA, bool retrievedImageFlags[] )
 {
 	// set defaut values
@@ -354,6 +360,7 @@ void parseCommandLine( int argc, char* argv[], bool& isColorizeDisp, bool& isFix
 		}
 	}
 }
+*/
 
 //OpenNI Callback functions
 //callback function of user generator: new user
@@ -385,9 +392,9 @@ void XN_CALLBACK_TYPE CalibrationEnd( xn::SkeletonCapability& skeleton, XnUserID
 */
 int main( int argc, char* argv[] )
 {
-	bool isColorizeDisp, isFixedMaxDisp, isSetSXGA;
-	bool retrievedImageFlags[CLICK_WINDOW];
-	parseCommandLine( argc, argv, isColorizeDisp, isFixedMaxDisp, isSetSXGA, retrievedImageFlags );
+	//bool isColorizeDisp, isFixedMaxDisp, isSetSXGA;
+	//bool retrievedImageFlags[CLICK_WINDOW];
+	//parseCommandLine( argc, argv, isColorizeDisp, isFixedMaxDisp, isSetSXGA, retrievedImageFlags );
 
 	cout << "Kinect opening ..." << endl;
 	VideoCapture capture( CV_CAP_OPENNI );
@@ -399,9 +406,9 @@ int main( int argc, char* argv[] )
 		return -1;
 	}
 
-	if( isSetSXGA )
-		capture.set( CV_CAP_OPENNI_IMAGE_GENERATOR_OUTPUT_MODE, CV_CAP_OPENNI_SXGA_15HZ );
-	else
+	//if( isSetSXGA )
+		//capture.set( CV_CAP_OPENNI_IMAGE_GENERATOR_OUTPUT_MODE, CV_CAP_OPENNI_SXGA_15HZ );
+	//else
 		capture.set( CV_CAP_OPENNI_IMAGE_GENERATOR_OUTPUT_MODE, CV_CAP_OPENNI_VGA_30HZ ); // default
 
 	// Print some avalible Kinect settings.
@@ -551,14 +558,7 @@ int main( int argc, char* argv[] )
 		}
 		else
 		{
-			if( retrievedImageFlags[0] && capture.retrieve( depthMap, CV_CAP_OPENNI_DEPTH_MAP ) )
-			{
-				const float scaleFactor = 0.05f;
-				Mat show; depthMap.convertTo( show, CV_8UC1, scaleFactor );
-				imshow( "depth map", show );
-			}
-
-			if( retrievedImageFlags[1] && capture.retrieve( disparityMap, CV_CAP_OPENNI_DISPARITY_MAP ) )
+			if(capture.retrieve( disparityMap, CV_CAP_OPENNI_DISPARITY_MAP ) )
 			{
 
 				//Show the OpenNI depth map
@@ -770,19 +770,6 @@ int main( int argc, char* argv[] )
 
 			}
 
-			if( retrievedImageFlags[2] && capture.retrieve( validDepthMap, CV_CAP_OPENNI_VALID_DEPTH_MASK ) )
-			{
-				//imshow( "valid depth mask", validDepthMap );
-			}
-			if( retrievedImageFlags[3] && capture.retrieve( bgrImage, CV_CAP_OPENNI_BGR_IMAGE ) )
-			{
-				//imshow( "rgb image", bgrImage );
-			}
-
-			if( retrievedImageFlags[4] && capture.retrieve( grayImage, CV_CAP_OPENNI_GRAY_IMAGE ) )
-			{
-				//	imshow( "gray image", grayImage );
-			}
 		}
 
 		if( waitKey( 30 ) >= 0 )
