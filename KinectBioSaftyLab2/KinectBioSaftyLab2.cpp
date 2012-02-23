@@ -1,6 +1,5 @@
 // KinectHandTracking01.cpp : Defines the entry point for the console application.
 //
-
 #include "stdafx.h"
 
 #include <opencv2/highgui/highgui.hpp>
@@ -17,29 +16,37 @@
 using namespace cv;
 using namespace std;
 
-//#define CLICK_WINDOW 25
 
-/*
-void help()
-{
-	cout << "\nThis program demonstrates usage of Kinect sensor.\n"
-		"The user gets some of the supported output images.\n"
-		"\nAll supported output map types:\n"
-		"1.) Data given from depth generator\n"
-		"   OPENNI_DEPTH_MAP            - depth values in mm (CV_16UC1)\n"
-		"   OPENNI_POINT_CLOUD_MAP      - XYZ in meters (CV_32FC3)\n"
-		"   OPENNI_DISPARITY_MAP        - disparity in pixels (CV_8UC1)\n"
-		"   OPENNI_DISPARITY_MAP_32F    - disparity in pixels (CV_32FC1)\n"
-		"   OPENNI_VALID_DEPTH_MASK     - mask of valid pixels (not ocluded, not shaded etc.) (CV_8UC1)\n"
-		"2.) Data given from RGB image generator\n"
-		"   OPENNI_BGR_IMAGE            - color image (CV_8UC3)\n"
-		"   OPENNI_GRAY_IMAGE           - gray image (CV_8UC1)\n"
-		<< endl;
+enum Joints{ RHand, LHand, RElbow, LElbow};
+enum Gestures{ Open, Closed};
+
+int jointsX[4], jointsY[4], jointsDepth[4];
+int gesture[2];
+bool initialized = false;
+
+extern "C" __declspec(dllexport) bool alreadyInit(){
+	return initialized;
 }
-*/
+
+extern "C" __declspec(dllexport) int getX(int joint) {
+	return jointsX[joint];
+}
+
+extern "C" __declspec(dllexport) int getY(int joint) {
+	return jointsY[joint]; 
+}
+
+extern "C" __declspec(dllexport) int getDepth(int joint) {
+	return jointsDepth[joint]; 
+}
+
+extern "C" __declspec(dllexport) int getGesture(int joint) {
+	return gesture[joint];
+}
 
 void findConvexityDefects(vector<Point>& contour, vector<int>& hull, vector<Point>& convexDefects)
 {
+
 	if(hull.size() > 0 && contour.size() > 0){
 		CvSeq* contourPoints;
 		CvSeq* defects;
@@ -96,7 +103,7 @@ void findConvexityDefects(vector<Point>& contour, vector<int>& hull, vector<Poin
 	}
 }
 
-void handDetect(vector<Point>& contour, Mat& disparityMap)
+void handDetect(vector<Point>& contour, Mat& disparityMap, int whichHand)
 {
 
 	Mat distImage;
@@ -166,6 +173,17 @@ void handDetect(vector<Point>& contour, Mat& disparityMap)
 	mj /= nMaxPts;
 
 	Point palmCenter(br.x + mj, br.y + mi);
+	if(whichHand == RHand)
+	{
+		jointsX[RHand] = palmCenter.x;
+		jointsY[RHand] = palmCenter.y;
+	}
+	else if(whichHand == LHand)
+	{
+		jointsX[LHand] = palmCenter.x;
+		jointsY[LHand] = palmCenter.y;
+	}
+
 	circle(disparityMap, palmCenter, 15, cvScalar(0,0,0));
 
 	//-------------- Do some convexity analysis
@@ -199,76 +217,17 @@ void handDetect(vector<Point>& contour, Mat& disparityMap)
 	bool closedFist = nDefectsNearPalm < 4;//4 works fine on me...
 	if (closedFist)
 	{
+		gesture[whichHand] = Closed;
 		circle(disparityMap, palmCenter, 12, cvScalar(0,0,0), -1);
 	}
+	else
+		gesture[whichHand] = Open;
 
 	//Point maxPts[100];
 	//minMaxLoc(disparityMap(boundingRect(contours0[idxOfBiggestArea])), NULL, NULL, NULL);
 
 }
 
-/*
-void colorizeDisparity( const Mat& gray, Mat& rgb, double maxDisp=-1.f, float S=1.f, float V=1.f )
-{
-	CV_Assert( !gray.empty() );
-	CV_Assert( gray.type() == CV_8UC1 );
-
-	if( maxDisp <= 0 )
-	{
-		maxDisp = 0;
-		minMaxLoc( gray, 0, &maxDisp );
-	}
-
-	rgb.create( gray.size(), CV_8UC3 );
-	rgb = Scalar::all(0);
-	if( maxDisp < 1 )
-		return;
-
-	for( int y = 0; y < gray.rows; y++ )
-	{
-		for( int x = 0; x < gray.cols; x++ )
-		{
-			uchar d = gray.at<uchar>(y,x);
-
-			if ( d > 0 )
-			{
-				double dd = d - 65.0;
-				dd *= (400/(255 - 65));
-				d = (uchar) dd;
-			}
-
-			unsigned int H = ((uchar)maxDisp - d) * 240 / (uchar)maxDisp;
-
-			unsigned int hi = (H/60) % 6;
-			float f = H/60.f - H/60;
-			float p = V * (1 - S);
-			float q = V * (1 - f * S);
-			float t = V * (1 - (1 - f) * S);
-
-			Point3f res;
-
-			if( hi == 0 ) //R = V,	G = t,	B = p
-				res = Point3f( p, t, V );
-			if( hi == 1 ) // R = q,	G = V,	B = p
-				res = Point3f( p, V, q );
-			if( hi == 2 ) // R = p,	G = V,	B = t
-				res = Point3f( t, V, p );
-			if( hi == 3 ) // R = p,	G = q,	B = V
-				res = Point3f( V, q, p );
-			if( hi == 4 ) // R = t,	G = p,	B = V
-				res = Point3f( V, p, t );
-			if( hi == 5 ) // R = V,	G = p,	B = q
-				res = Point3f( q, p, V );
-
-			//uchar b = (uchar)(std::max(0.f, std::min (res.x, 1.f)) * 255.f);
-			//uchar g = (uchar)(std::max(0.f, std::min (res.y, 1.f)) * 255.f);
-			//uchar r = (uchar)(std::max(0.f, std::min (res.z, 1.f)) * 255.f);
-
-			//rgb.at<Point3_<uchar> >(y,x) = Point3_<uchar>(b, g, r);     
-		}
-	}
-}
-*/
 
 
 float getMaxDisparity( VideoCapture& capture )
@@ -279,88 +238,6 @@ float getMaxDisparity( VideoCapture& capture )
 	return b * F / minDistance;
 }
 
-/*
-void printCommandLineParams()
-{
-	cout << "-cd       Colorized disparity? (0 or 1; 1 by default) Ignored if disparity map is not selected to show." << endl;
-	cout << "-fmd      Fixed max disparity? (0 or 1; 0 by default) Ignored if disparity map is not colorized (-cd 0)." << endl;
-	cout << "-sxga     SXGA resolution of image? (0 or 1; 0 by default) Ignored if rgb image or gray image are not selected to show." << endl;
-	cout << "          If -sxga is 0 then vga resolution will be set by default." << endl;
-	cout << "-m        Mask to set which output images are need. It is a string of size 5. Each element of this is '0' or '1' and" << endl;
-	cout << "          determine: is depth map, disparity map, valid pixels mask, rgb image, gray image need or not (correspondently)?" << endl ;
-	cout << "          By default -m 01010 i.e. disparity map and rgb image will be shown." << endl ;
-}
-*/
-
-/*
-void parseCommandLine( int argc, char* argv[], bool& isColorizeDisp, bool& isFixedMaxDisp, bool& isSetSXGA, bool retrievedImageFlags[] )
-{
-	// set defaut values
-	isColorizeDisp = true;
-	isFixedMaxDisp = false;
-	isSetSXGA = false;
-
-	retrievedImageFlags[0] = false;
-	retrievedImageFlags[1] = true;
-	retrievedImageFlags[2] = false;
-	retrievedImageFlags[3] = true;
-	retrievedImageFlags[4] = false;
-
-	if( argc == 1 )
-	{
-		help();
-	}
-	else
-	{
-		for( int i = 1; i < argc; i++ )
-		{
-			if( !strcmp( argv[i], "--help" ) || !strcmp( argv[i], "-h" ) )
-			{
-				printCommandLineParams();
-				exit(0);
-			}
-			else if( !strcmp( argv[i], "-cd" ) )
-			{
-				isColorizeDisp = atoi(argv[++i]) == 0 ? false : true;
-			}
-			else if( !strcmp( argv[i], "-fmd" ) )
-			{
-				isFixedMaxDisp = atoi(argv[++i]) == 0 ? false : true;
-			}
-			else if( !strcmp( argv[i], "-sxga" ) )
-			{
-				isSetSXGA = atoi(argv[++i]) == 0 ? false : true;
-			}
-			else if( !strcmp( argv[i], "-m" ) )
-			{
-				string mask( argv[++i] );
-				if( mask.size() != 5)
-					CV_Error( CV_StsBadArg, "Incorrect length of -m argument string" );
-				int val = atoi(mask.c_str());
-
-				int l = 100000, r = 10000, sum = 0;
-				for( int i = 0; i < 5; i++ )
-				{
-					retrievedImageFlags[i] = ((val % l) / r ) == 0 ? false : true;
-					l /= 10; r /= 10;
-					if( retrievedImageFlags[i] ) sum++;
-				}
-
-				if( sum == 0 )
-				{
-					cout << "No one output image is selected." << endl;
-					exit(0);
-				}
-			}
-			else
-			{
-				cout << "Unsupported command line argument: " << argv[i] << "." << endl;
-				exit(-1);
-			}
-		}
-	}
-}
-*/
 
 //OpenNI Callback functions
 //callback function of user generator: new user
@@ -386,18 +263,28 @@ void XN_CALLBACK_TYPE CalibrationEnd( xn::SkeletonCapability& skeleton, XnUserID
 }
 
 
-/*
-* To work with Kinect the user must install OpenNI library and PrimeSensorModule for OpenNI and
-* configure OpenCV with WITH_OPENNI flag is ON (using CMake).
-*/
-int main( int argc, char* argv[] )
-{
-	//bool isColorizeDisp, isFixedMaxDisp, isSetSXGA;
-	//bool retrievedImageFlags[CLICK_WINDOW];
-	//parseCommandLine( argc, argv, isColorizeDisp, isFixedMaxDisp, isSetSXGA, retrievedImageFlags );
+//OpenNI
+xn::Context mContext;
+xn::DepthMetaData m_DepthMD;
+xn::UserGenerator mUserGenerator;
+xn::SkeletonCapability mSC(mUserGenerator);
+xn::DepthGenerator mDepthGenerator;
+VideoCapture capture;
+
+//Joints data
+//enum Joints{ RHand, RElbow, LHand, LElbow};
+//Raw joints data include position and orientation
+XnSkeletonJointTransformation JointsTransformation[4];
+//Joints in Realworld coordinates and Screen coordinates
+XnPoint3D  JointsReal[4];
+XnPoint3D  JointsScreen[4];
+//Length form elbow to hand in real world(mm)
+//int RLength = 0, LLength = 0;
+
+extern "C" __declspec(dllexport) int initKinect(){
 
 	cout << "Kinect opening ..." << endl;
-	VideoCapture capture( CV_CAP_OPENNI );
+	capture = VideoCapture(CV_CAP_OPENNI);
 	cout << "done." << endl;
 
 	if( !capture.isOpened() )
@@ -406,10 +293,7 @@ int main( int argc, char* argv[] )
 		return -1;
 	}
 
-	//if( isSetSXGA )
-		//capture.set( CV_CAP_OPENNI_IMAGE_GENERATOR_OUTPUT_MODE, CV_CAP_OPENNI_SXGA_15HZ );
-	//else
-		capture.set( CV_CAP_OPENNI_IMAGE_GENERATOR_OUTPUT_MODE, CV_CAP_OPENNI_VGA_30HZ ); // default
+	capture.set( CV_CAP_OPENNI_IMAGE_GENERATOR_OUTPUT_MODE, CV_CAP_OPENNI_VGA_30HZ ); // default
 
 	// Print some avalible Kinect settings.
 	cout << "\nDepth generator output mode:" << endl <<
@@ -426,32 +310,18 @@ int main( int argc, char* argv[] )
 	//store a brief timeline of the depths to get a more robust detection of a 'click'
 	deque<int> depths;
 
-	//Joints data
-	enum Joints{ RHand, RElbow, LHand, LElbow};
-	//Raw joints data include position and orientation
-	XnSkeletonJointTransformation JointsTransformation[4];
-	//Joints in Realworld coordinates and Screen coordinates
-	XnPoint3D  JointsReal[4];
-	XnPoint3D  JointsScreen[4];
-	//Length form elbow to hand in real world(mm)
-	//int RLength = 0, LLength = 0;
-
 	//OpenNI
 	//initial context
-	xn::Context mContext;
 	mContext.Init();
 
 	//create user generator
-	xn::UserGenerator mUserGenerator;
 	mUserGenerator.Create( mContext );
 
 	//create depth generator
-	xn::DepthMetaData m_DepthMD;
 	XnMapOutputMode mapMode;
 	mapMode.nXRes = 640;  
 	mapMode.nYRes = 480; 
 	mapMode.nFPS = 30; 
-	xn::DepthGenerator mDepthGenerator;  
 	mDepthGenerator.Create( mContext ); 
 	mDepthGenerator.SetMapOutputMode( mapMode );  
 
@@ -460,323 +330,362 @@ int main( int argc, char* argv[] )
 	mUserGenerator.RegisterUserCallbacks( NewUser, NULL, NULL, hUserCB );
 
 	//Register callback functions of skeleton capability
-	xn::SkeletonCapability mSC = mUserGenerator.GetSkeletonCap();
+	mSC = mUserGenerator.GetSkeletonCap();
 	mSC.SetSkeletonProfile( XN_SKEL_PROFILE_UPPER);//XN_SKEL_PROFILE_UPPER  XN_SKEL_PROFILE_HEAD_HANDS
 	XnCallbackHandle hCalibCB;
 	mSC.RegisterToCalibrationComplete( CalibrationEnd, &mUserGenerator, hCalibCB );
 
+	initialized = true;
+
 	//start generate data
 	mContext.StartGeneratingAll();
+}
 
-	for(;;)
+extern "C" __declspec(dllexport) int closeKinect(){
+	mContext.StopGeneratingAll();
+	capture.release();
+	mDepthGenerator.Release();
+	mUserGenerator.Release();
+	mContext.Release();
+	initialized = false;
+	return 0;
+}
+
+/*
+* To work with Kinect the user must install OpenNI library and PrimeSensorModule for OpenNI and
+* configure OpenCV with WITH_OPENNI flag is ON (using CMake).
+*/
+extern "C" __declspec(dllexport) int updateKinect()
+{
+
+	Mat depthMap;
+	Mat validDepthMap;
+	Mat disparityMap;
+	Mat bgrImage;
+	Mat grayImage;
+
+	int thresholdHand = 65;
+	int thickOfThreshold = 3;//the thick of threshold based on hand joints
+	int handRadius = 110;//the radius of the circle form hand joints
+	XnUserID userID = 0;
+
+	Point joints[4];
+
+	//OpenNI
+	Mat m_depthmap(480, 640, CV_8UC3 );
+	Mat m_depth16u(480, 640, CV_16UC1 );
+	//Update date
+	mContext.WaitAndUpdateAll();
+	//cout << "updated" << endl;
+
+	// 7. get user information
+	XnUInt16 nUsers = mUserGenerator.GetNumberOfUsers();
+	if( nUsers > 0 )
 	{
-		Mat depthMap;
-		Mat validDepthMap;
-		Mat disparityMap;
-		Mat bgrImage;
-		Mat grayImage;
+		//cout << "get user" << endl;
 
-		int thresholdHand = 65;
-		int thickOfThreshold = 3;//the thick of threshold based on hand joints
-		int handRadius = 110;//the radius of the circle form hand joints
-		XnUserID userID = 0;
+		// 8. get users
+		XnUserID* aUserID = new XnUserID[nUsers];
+		mUserGenerator.GetUsers( aUserID, nUsers );
 
-		Point joints[4];
-
-		//OpenNI
-		Mat m_depthmap(480, 640, CV_8UC3 );
-		Mat m_depth16u(480, 640, CV_16UC1 );
-		//Update date
-		mContext.WaitAndUpdateAll();
-
-		// 7. get user information
-		XnUInt16 nUsers = mUserGenerator.GetNumberOfUsers();
-		if( nUsers > 0 )
+		// 9. check each user //Now only use one user
+		for( int i = 0; i < nUsers; ++i )
 		{
-			// 8. get users
-			XnUserID* aUserID = new XnUserID[nUsers];
-			mUserGenerator.GetUsers( aUserID, nUsers );
-
-			// 9. check each user //Now only use one user
-			for( int i = 0; i < nUsers; ++i )
+			// 10. if is tracking skeleton
+			if( mSC.IsTracking( aUserID[i] ) )
 			{
-				// 10. if is tracking skeleton
-				if( mSC.IsTracking( aUserID[i] ) )
-				{
-					// 11. get skeleton joint data
-					mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_RIGHT_HAND, JointsTransformation[LHand] );
-					mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_RIGHT_ELBOW, JointsTransformation[LElbow] );
-					mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_LEFT_HAND, JointsTransformation[RHand] );
-					mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_LEFT_ELBOW, JointsTransformation[RElbow] );
+				// 11. get skeleton joint data
+				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_RIGHT_HAND, JointsTransformation[LHand] );
+				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_RIGHT_ELBOW, JointsTransformation[LElbow] );
+				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_LEFT_HAND, JointsTransformation[RHand] );
+				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_LEFT_ELBOW, JointsTransformation[RElbow] );
 
-					for(int i=0; i<4; i++){
+				for(int i=0; i<4; i++){
 					JointsReal[i] = xnCreatePoint3D(JointsTransformation[i].position.position.X, JointsTransformation[i].position.position.Y, JointsTransformation[i].position.position.Z);
-					}
-
-					//Calc distance between hand & elbow
-					/*
-					RLength = sqrt(pow(JointsReal[RHand].X-JointsReal[RElbow].X, 2) + 
-						pow(JointsReal[RHand].Y-JointsReal[RElbow].Y, 2) + 
-						pow(JointsReal[RHand].Z-JointsReal[RElbow].Z, 2));
-
-					LLength = sqrt(pow(JointsReal[LHand].X-JointsReal[LElbow].X, 2) + 
-						pow(JointsReal[LHand].Y-JointsReal[LElbow].Y, 2) + 
-						pow(JointsReal[LHand].Z-JointsReal[LElbow].Z, 2));
-					*/
-
-					//Convert from realworld coordinates to Projective(Screen) coordinates
-					mDepthGenerator.ConvertRealWorldToProjective(4, JointsReal, JointsScreen);
-
-					//Convert from depth to disparity:  disparity = baseline * Focallength / z(depth);
-					float b = (float)capture.get( CV_CAP_OPENNI_DEPTH_GENERATOR_BASELINE ); // mm
-					float f = (float)capture.get( CV_CAP_OPENNI_DEPTH_GENERATOR_FOCAL_LENGTH ); // pixels
-					float mult = b /*mm*/ * f /*pixels*/;
-
-					for(int i=0; i<4; i++){
-						JointsScreen[i].Z = (mult / JointsScreen[i].Z);
-						joints[i] = Point(JointsScreen[i].X, JointsScreen[i].Y);
-					}
-
-					if(JointsScreen[RHand].X < 0 || JointsScreen[RHand].Y < 0)
-						JointsScreen[RHand].Z = 0xFF;//if out of window, don't use the depth
-					if(JointsScreen[LHand].X < 0 || JointsScreen[LHand].Y < 0)
-						JointsScreen[LHand].Z = 0xFF;//if out of window, don't use the depth
-					//0(far)-65(near)   20(3m) - 85(1m)
-					//take the farest hand as threshold
-					thresholdHand = (JointsScreen[RHand].Z < JointsScreen[LHand].Z ? JointsScreen[RHand].Z : JointsScreen[LHand].Z) -  thickOfThreshold;
-
-					userID = aUserID[i];
 				}
-			}
-			delete [] aUserID;
-		}
 
-		if( !capture.grab() )
-		{
-			cout << "Can not grab images." << endl;
-			return -1;
+				//Calc distance between hand & elbow
+				/*
+				RLength = sqrt(pow(JointsReal[RHand].X-JointsReal[RElbow].X, 2) + 
+				pow(JointsReal[RHand].Y-JointsReal[RElbow].Y, 2) + 
+				pow(JointsReal[RHand].Z-JointsReal[RElbow].Z, 2));
+
+				LLength = sqrt(pow(JointsReal[LHand].X-JointsReal[LElbow].X, 2) + 
+				pow(JointsReal[LHand].Y-JointsReal[LElbow].Y, 2) + 
+				pow(JointsReal[LHand].Z-JointsReal[LElbow].Z, 2));
+				*/
+
+				//Convert from realworld coordinates to Projective(Screen) coordinates
+				mDepthGenerator.ConvertRealWorldToProjective(4, JointsReal, JointsScreen);
+
+				//Convert from depth to disparity:  disparity = baseline * Focallength / z(depth);
+				float b = (float)capture.get( CV_CAP_OPENNI_DEPTH_GENERATOR_BASELINE ); // mm
+				float f = (float)capture.get( CV_CAP_OPENNI_DEPTH_GENERATOR_FOCAL_LENGTH ); // pixels
+				float mult = b /*mm*/ * f /*pixels*/;
+
+				for(int i=0; i<4; i++){
+					JointsScreen[i].Z = (mult / JointsScreen[i].Z);
+					joints[i] = Point(JointsScreen[i].X, JointsScreen[i].Y);
+				}
+
+				if(JointsScreen[RHand].X < 0 || JointsScreen[RHand].Y < 0)
+					JointsScreen[RHand].Z = 0xFF;//if out of window, don't use the depth
+				if(JointsScreen[LHand].X < 0 || JointsScreen[LHand].Y < 0)
+					JointsScreen[LHand].Z = 0xFF;//if out of window, don't use the depth
+				//0(far)-65(near)   20(3m) - 85(1m)
+				//take the farest hand as threshold
+				thresholdHand = (JointsScreen[RHand].Z < JointsScreen[LHand].Z ? JointsScreen[RHand].Z : JointsScreen[LHand].Z) -  thickOfThreshold;
+
+				userID = aUserID[i];
+			}
 		}
-		else
+		delete [] aUserID;
+	}
+
+	if( !capture.grab() )
+	{
+		cout << "Can not grab images." << endl;
+		return -1;
+	}
+	else
+	{
+		if(capture.retrieve( disparityMap, CV_CAP_OPENNI_DISPARITY_MAP ) )
 		{
-			if(capture.retrieve( disparityMap, CV_CAP_OPENNI_DISPARITY_MAP ) )
+			//cout << "start capturing" << endl;
+			//Show the OpenNI depth map
+			// 9a. get the depth map  
+			mDepthGenerator.GetMetaData(m_DepthMD);
+			memcpy(m_depth16u.data, m_DepthMD.Data(),640*480*2);
+
+			//16U Convert to 8U
+			m_depth16u.convertTo(m_depthmap, CV_8U, 255.0/2550.0);
+			cvtColor(m_depthmap,m_depthmap,CV_GRAY2RGB);
+
+			bool isTracking = mSC.IsTracking(userID);
+
+			//draw lines of the arms
+			if(isTracking){
+				cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
+				cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
+			}
+			imshow( "depthmap", m_depthmap );
+
+			Mat colorDisparityMap;
+			Mat filterScratch;
+
+			/*//Debug
+			if(isTracking){
+			char temp[10];
+			CvFont Font;
+			cvInitFont( &Font,CV_FONT_HERSHEY_SIMPLEX,0.5,0.5,0.0,1, CV_AA );
+			sprintf(temp,"(%d,%d)", (int)JointsScreen[RHand].X, (int)JointsScreen[RHand].Y);
+			cvPutText(&(m_depthmap.operator IplImage()), temp, cvPoint(20, 20), &Font, CV_RGB(0,255,0));
+			if(JointsScreen[RHand].X > 0 && JointsScreen[RHand].X < 640 && JointsScreen[RHand].Y > 0 && JointsScreen[RHand].Y < 480)
+			sprintf(temp,"%d",(int)disparityMap.at<unsigned short>((int)JointsScreen[RHand].X, (int)JointsScreen[RHand].Y));
+			cvPutText(&(m_depthmap.operator IplImage()), temp, cvPoint(20, 50), &Font, CV_RGB(255,0,0));
+			circle(disparityMap, Point(JointsScreen[RHand].X, JointsScreen[RHand].Y), 20, cvScalar(255), 4);
+			}
+			imshow( "disparityMap", disparityMap );
+			*/
+
+			/*
+			if(isTracking){
+			for (int y = 0; y < disparityMap.rows; y++)
 			{
-
-				//Show the OpenNI depth map
-				// 9a. get the depth map  
-				mDepthGenerator.GetMetaData(m_DepthMD);
-				memcpy(m_depth16u.data, m_DepthMD.Data(),640*480*2);
-
-				//16U Convert to 8U
-				m_depth16u.convertTo(m_depthmap, CV_8U, 255.0/2550.0);
-				cvtColor(m_depthmap,m_depthmap,CV_GRAY2RGB);
-
-				bool isTracking = mSC.IsTracking(userID);
-
-				//draw lines of the arms
-				if(isTracking){
-					cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
-					cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
-				}
-				imshow( "depthmap", m_depthmap );
-
-				Mat colorDisparityMap;
-				Mat filterScratch;
-
-				/*//Debug
-				if(isTracking){
-					char temp[10];
-					CvFont Font;
-					cvInitFont( &Font,CV_FONT_HERSHEY_SIMPLEX,0.5,0.5,0.0,1, CV_AA );
-					sprintf(temp,"(%d,%d)", (int)JointsScreen[RHand].X, (int)JointsScreen[RHand].Y);
-					cvPutText(&(m_depthmap.operator IplImage()), temp, cvPoint(20, 20), &Font, CV_RGB(0,255,0));
-					if(JointsScreen[RHand].X > 0 && JointsScreen[RHand].X < 640 && JointsScreen[RHand].Y > 0 && JointsScreen[RHand].Y < 480)
-						sprintf(temp,"%d",(int)disparityMap.at<unsigned short>((int)JointsScreen[RHand].X, (int)JointsScreen[RHand].Y));
-					cvPutText(&(m_depthmap.operator IplImage()), temp, cvPoint(20, 50), &Font, CV_RGB(255,0,0));
-					circle(disparityMap, Point(JointsScreen[RHand].X, JointsScreen[RHand].Y), 20, cvScalar(255), 4);
-				}
-				imshow( "disparityMap", disparityMap );
-				*/
-
-				/*
-				if(isTracking){
-					for (int y = 0; y < disparityMap.rows; y++)
-					{
-						for (int x = 0; x < disparityMap.cols; x++)
-						{
-							if( norm( Point(x,y) - Point(joints[RHand].x, joints[RHand].y) ) > 150 )
-								disparityMap.at<unsigned short>(x, y) = 0;
-						}
-					}
-				}
-				*/
-
-				blur(disparityMap, filterScratch, Size(5, 5));
-				dilate(filterScratch, disparityMap, Mat(),Point(-1,-1),2);
-				threshold(disparityMap, disparityMap, thresholdHand, 255, THRESH_TOZERO);//cut 0(far)-65(near)   20(3m) - 85(1m)
-
-				//Draw circles on the hand joints, cut everything outside the circle
-				if(isTracking){
-					for (int y = 0; y < disparityMap.rows; y++) {
-						for (int x = 0; x < disparityMap.cols; x++) {
-							if(disparityMap.at<unsigned char>(y, x) != 0) {
-								if( norm(Point(x,y) - Point(joints[RHand].x, joints[RHand].y)) > handRadius &&
-									norm(Point(x,y) - Point(joints[LHand].x, joints[LHand].y)) > handRadius )
-									disparityMap.at<unsigned char>(y, x) = 0;
-							}
-						}
-					}
-				}
-				
-				vector<vector<Point> > contours0;
-				vector<vector<Point> > hull;
-				vector<Vec4i> hierarchy;
-
-				//unnecessary code? what does it do?
-				/*
-				colorizeDisparity( disparityMap, colorDisparityMap, isFixedMaxDisp ? getMaxDisparity(capture) : -1 );
-
-				Mat validColorDisparityMap;
-
-				colorDisparityMap.copyTo( validColorDisparityMap, disparityMap != 0 );
-				*/
-
-				//get the contours
-
-				threshold(disparityMap, filterScratch, thresholdHand, 255, THRESH_BINARY);
-				findContours( filterScratch, contours0, hierarchy, CV_RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
-
-				//Get average position, weight by y-value:
-				/*
-				double sum=0;
-
-				int avX = 0;
-				int avY = 0;
-
-				bool foundHighest = false;
-
-				//idea 1:
-				//Make histogram of total nPixels > thresh higher than a particular height
-				int heightHist[600];
-				int newDepth = -1;
-
-				for(int i = 0; i < validColorDisparityMap.rows && !foundHighest; i++)
-				{
-					//const double* row = validColorDisparityMap.ptr<double>(i);
-					double multiplier = (validColorDisparityMap.rows - i + 0.0) / validColorDisparityMap.rows;
-					multiplier = std::pow(multiplier, 1);
-
-					if (i > 0)
-					{
-						heightHist[i] = heightHist[i - 1];
-					}
-
-					for(int j = 0; j < validColorDisparityMap.cols; j++)
-					{
-						//uchar val = row[j];
-						double val = disparityMap.at<uchar>(i,j) / 255.0;
-						//val = std::pow(val, 2);
-
-						if (val > 0)
-						{
-							newDepth = disparityMap.at<uchar>(i,j);
-
-							//update the depth history
-							depths.push_back(newDepth);
-							if ( depths.size() > CLICK_WINDOW )
-							{
-								depths.pop_front();
-							}
-
-							heightHist[i] += 1; //should I weight?
-							foundHighest = true;
-							sum += multiplier * val;
-							avX += j * multiplier * val;
-							avY += i * multiplier * val;
-						}
-					}
-				}
-
-				avX /= sum;
-				avY /= sum;
-				
-				double depthSpeed = 0;
-				for (int i = 0; i + 1 < depths.size() && depths.size() == CLICK_WINDOW; i++)
-				{
-					depthSpeed += (depths[i+1] - depths[i])/2.0/depths.size();
-				}
-
-				bool clickDetected = depthSpeed > 0.05;//newDepth - prevDepth >= 2 && prevDepth != -1;
-				if ( clickDetected )
-				{
-					//circle(validColorDisparityMap, Point(avX, avY), 40, cvScalar(0,0,255,255));
-				}
-				else
-				{
-					//circle(validColorDisparityMap, Point(avX, avY), 50, cvScalar(255,255,255,255));
-				}
-				*/
-
-				//  Horizontally flip (mirror) image
-
-				Mat flipped;
-				Mat distImage;
-
-				//Find the contours which hand joints are within
-				int idxOfRHand = -1;
-				int idxOfLHand = -1;
-
-				threshold(disparityMap, disparityMap, -1, 255, THRESH_BINARY);//clean all
-
-				for (int i = 0; i < contours0.size(); i++)
-				{
-					if(pointPolygonTest(contours0[i],Point(joints[RHand].x, joints[RHand].y), true) > -5)//hand joint "near"(not just inside) the contour polygon
-						idxOfRHand = i;
-
-					if(pointPolygonTest(contours0[i],Point(joints[LHand].x, joints[LHand].y), true) > -5)//hand joint "near"(not just inside) the contour polygon
-						idxOfLHand = i;
-
-					drawContours( disparityMap, contours0, i, Scalar(0), 1);
-				}
-				
-				if (idxOfRHand >= 0)
-					handDetect(contours0[idxOfRHand], disparityMap);
-				if (idxOfLHand >= 0)
-					handDetect(contours0[idxOfLHand], disparityMap);
-				
-				//draw lines of the forearms
-
-				if(isTracking){
-					cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
-					cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
-					circle(disparityMap, Point(JointsScreen[RHand].X, JointsScreen[RHand].Y), 5, cvScalar(0));
-				}
-
-				flip(disparityMap, flipped, 1); //flip horizontal
-
-				//debug: show the depth value of right hand joint
-				/*
-				if(isTracking){
-					char temp[10];
-					CvFont Font;
-					cvInitFont( &Font,CV_FONT_HERSHEY_SIMPLEX,0.5,0.5,0.0,1, CV_AA );
-					sprintf(temp,"Z(R:%d",(int)JointsScreen[RHand].Z);
-					cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 20), &Font, CV_RGB(255,0,0));
-					sprintf(temp,"TH(R:%d", thresholdHand);
-					cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 100), &Font, CV_RGB(255,0,0));
-				}
-				*/
-
-				imshow( "colorized disparity map", flipped );
-
+			for (int x = 0; x < disparityMap.cols; x++)
+			{
+			if( norm( Point(x,y) - Point(joints[RHand].x, joints[RHand].y) ) > 150 )
+			disparityMap.at<unsigned short>(x, y) = 0;
 			}
+			}
+			}
+			*/
+
+			blur(disparityMap, filterScratch, Size(5, 5));
+			dilate(filterScratch, disparityMap, Mat(),Point(-1,-1),2);
+			threshold(disparityMap, disparityMap, thresholdHand, 255, THRESH_TOZERO);//cut 0(far)-65(near)   20(3m) - 85(1m)
+
+			//Draw circles on the hand joints, cut everything outside the circle
+			if(isTracking){
+				for (int y = 0; y < disparityMap.rows; y++) {
+					for (int x = 0; x < disparityMap.cols; x++) {
+						if(disparityMap.at<unsigned char>(y, x) != 0) {
+							if( norm(Point(x,y) - Point(joints[RHand].x, joints[RHand].y)) > handRadius &&
+								norm(Point(x,y) - Point(joints[LHand].x, joints[LHand].y)) > handRadius )
+								disparityMap.at<unsigned char>(y, x) = 0;
+						}
+					}
+				}
+			}
+
+			vector<vector<Point> > contours0;
+			vector<vector<Point> > hull;
+			vector<Vec4i> hierarchy;
+
+			//unnecessary code? what does it do?
+			/*
+			colorizeDisparity( disparityMap, colorDisparityMap, isFixedMaxDisp ? getMaxDisparity(capture) : -1 );
+
+			Mat validColorDisparityMap;
+
+			colorDisparityMap.copyTo( validColorDisparityMap, disparityMap != 0 );
+			*/
+
+			//get the contours
+
+			threshold(disparityMap, filterScratch, thresholdHand, 255, THRESH_BINARY);
+			findContours( filterScratch, contours0, hierarchy, CV_RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+
+			//Get average position, weight by y-value:
+			/*
+			double sum=0;
+
+			int avX = 0;
+			int avY = 0;
+
+			bool foundHighest = false;
+
+			//idea 1:
+			//Make histogram of total nPixels > thresh higher than a particular height
+			int heightHist[600];
+			int newDepth = -1;
+
+			for(int i = 0; i < validColorDisparityMap.rows && !foundHighest; i++)
+			{
+			//const double* row = validColorDisparityMap.ptr<double>(i);
+			double multiplier = (validColorDisparityMap.rows - i + 0.0) / validColorDisparityMap.rows;
+			multiplier = std::pow(multiplier, 1);
+
+			if (i > 0)
+			{
+			heightHist[i] = heightHist[i - 1];
+			}
+
+			for(int j = 0; j < validColorDisparityMap.cols; j++)
+			{
+			//uchar val = row[j];
+			double val = disparityMap.at<uchar>(i,j) / 255.0;
+			//val = std::pow(val, 2);
+
+			if (val > 0)
+			{
+			newDepth = disparityMap.at<uchar>(i,j);
+
+			//update the depth history
+			depths.push_back(newDepth);
+			if ( depths.size() > CLICK_WINDOW )
+			{
+			depths.pop_front();
+			}
+
+			heightHist[i] += 1; //should I weight?
+			foundHighest = true;
+			sum += multiplier * val;
+			avX += j * multiplier * val;
+			avY += i * multiplier * val;
+			}
+			}
+			}
+
+			avX /= sum;
+			avY /= sum;
+
+			double depthSpeed = 0;
+			for (int i = 0; i + 1 < depths.size() && depths.size() == CLICK_WINDOW; i++)
+			{
+			depthSpeed += (depths[i+1] - depths[i])/2.0/depths.size();
+			}
+
+			bool clickDetected = depthSpeed > 0.05;//newDepth - prevDepth >= 2 && prevDepth != -1;
+			if ( clickDetected )
+			{
+			//circle(validColorDisparityMap, Point(avX, avY), 40, cvScalar(0,0,255,255));
+			}
+			else
+			{
+			//circle(validColorDisparityMap, Point(avX, avY), 50, cvScalar(255,255,255,255));
+			}
+			*/
+
+			//  Horizontally flip (mirror) image
+
+			Mat flipped;
+			Mat distImage;
+
+			//Find the contours which hand joints are within
+			int idxOfRHand = -1;
+			int idxOfLHand = -1;
+
+			threshold(disparityMap, disparityMap, -1, 255, THRESH_BINARY);//clean all
+
+			for (int i = 0; i < contours0.size(); i++)
+			{
+				if(pointPolygonTest(contours0[i],Point(joints[RHand].x, joints[RHand].y), true) > -5)//hand joint "near"(not just inside) the contour polygon
+					idxOfRHand = i;
+
+				if(pointPolygonTest(contours0[i],Point(joints[LHand].x, joints[LHand].y), true) > -5)//hand joint "near"(not just inside) the contour polygon
+					idxOfLHand = i;
+
+				drawContours( disparityMap, contours0, i, Scalar(0), 1);
+			}
+
+			if (idxOfRHand >= 0)
+				handDetect(contours0[idxOfRHand], disparityMap, RHand);
+			if (idxOfLHand >= 0)
+				handDetect(contours0[idxOfLHand], disparityMap, LHand);
+
+			//draw lines of the forearms
+
+			if(isTracking){
+				cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
+				cvLine(&(disparityMap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
+				circle(disparityMap, Point(JointsScreen[RHand].X, JointsScreen[RHand].Y), 5, cvScalar(0));
+			}
+
+			flip(disparityMap, flipped, 1); //flip horizontal
+
+			//debug: show the depth value of right hand joint
+			/*
+			if(isTracking){
+			char temp[10];
+			CvFont Font;
+			cvInitFont( &Font,CV_FONT_HERSHEY_SIMPLEX,0.5,0.5,0.0,1, CV_AA );
+			sprintf(temp,"Z(R:%d",(int)JointsScreen[RHand].Z);
+			cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 20), &Font, CV_RGB(255,0,0));
+			sprintf(temp,"TH(R:%d", thresholdHand);
+			cvPutText(&(flipped.operator IplImage()), temp, cvPoint(20, 100), &Font, CV_RGB(255,0,0));
+			}
+			*/
+
+			imshow( "colorized disparity map", flipped );
 
 		}
 
 		if( waitKey( 30 ) >= 0 )
-			break;
+			return 0;
 
 	}
 
 	return 0;
 }
 
+
+int getRHandX()
+{
+	return JointsScreen[RHand].X;
+}
+
+int getRHandY()
+{
+	return JointsScreen[RHand].Y;
+}
+
+int getLHandX()
+{
+	return JointsScreen[RHand].X;
+}
+
+int getLHandY()
+{
+	return JointsScreen[RHand].Y;
+}
