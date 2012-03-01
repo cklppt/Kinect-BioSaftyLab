@@ -316,6 +316,7 @@ extern "C" __declspec(dllexport) int initKinect(){
 
 	//create user generator
 	mUserGenerator.Create( mContext );
+	mUserGenerator.GetMirrorCap().SetMirror(true);
 
 	//create depth generator
 	XnMapOutputMode mapMode;
@@ -324,6 +325,7 @@ extern "C" __declspec(dllexport) int initKinect(){
 	mapMode.nFPS = 30; 
 	mDepthGenerator.Create( mContext ); 
 	mDepthGenerator.SetMapOutputMode( mapMode );  
+	mDepthGenerator.GetMirrorCap().SetMirror(true);
 
 	//Register callback functions of user generator
 	XnCallbackHandle hUserCB;
@@ -395,10 +397,10 @@ extern "C" __declspec(dllexport) int updateKinect()
 			if( mSC.IsTracking( aUserID[i] ) )
 			{
 				// 11. get skeleton joint data
-				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_RIGHT_HAND, JointsTransformation[LHand] );
-				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_RIGHT_ELBOW, JointsTransformation[LElbow] );
-				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_LEFT_HAND, JointsTransformation[RHand] );
-				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_LEFT_ELBOW, JointsTransformation[RElbow] );
+				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_RIGHT_HAND, JointsTransformation[RHand] );
+				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_RIGHT_ELBOW, JointsTransformation[RElbow] );
+				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_LEFT_HAND, JointsTransformation[LHand] );
+				mSC.GetSkeletonJoint( aUserID[i], XN_SKEL_LEFT_ELBOW, JointsTransformation[LElbow] );
 
 				for(int i=0; i<4; i++){
 					JointsReal[i] = xnCreatePoint3D(JointsTransformation[i].position.position.X, JointsTransformation[i].position.position.Y, JointsTransformation[i].position.position.Z);
@@ -434,6 +436,8 @@ extern "C" __declspec(dllexport) int updateKinect()
 					JointsScreen[LHand].Z = 0xFF;//if out of window, don't use the depth
 				//0(far)-65(near)   20(3m) - 85(1m)
 				//take the farest hand as threshold
+				jointsDepth[RHand] = JointsScreen[RHand].Z;
+				jointsDepth[LHand] = JointsScreen[LHand].Z;
 				thresholdHand = (JointsScreen[RHand].Z < JointsScreen[LHand].Z ? JointsScreen[RHand].Z : JointsScreen[LHand].Z) -  thickOfThreshold;
 
 				userID = aUserID[i];
@@ -468,7 +472,7 @@ extern "C" __declspec(dllexport) int updateKinect()
 				cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[RElbow].X, JointsScreen[RElbow].Y), cvPoint(JointsScreen[RHand].X, JointsScreen[RHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 				cvLine(&(m_depthmap.operator IplImage()), cvPoint(JointsScreen[LElbow].X, JointsScreen[LElbow].Y), cvPoint(JointsScreen[LHand].X, JointsScreen[LHand].Y), CV_RGB(0,255,0), 3, 8, 0);
 			}
-			imshow( "depthmap", m_depthmap );
+			//imshow( "depthmap", m_depthmap );
 
 			Mat colorDisparityMap;
 			Mat filterScratch;
@@ -657,7 +661,7 @@ extern "C" __declspec(dllexport) int updateKinect()
 			}
 			*/
 
-			imshow( "colorized disparity map", flipped );
+			//imshow( "colorized disparity map", flipped );
 
 		}
 
